@@ -8,6 +8,7 @@ import subprocess
 import warnings
 from tempfile import NamedTemporaryFile
 from typing import Iterable, Literal, Optional
+from pathlib import Path
 
 LOGGER = logging.getLogger(__name__)
 
@@ -38,12 +39,12 @@ WarpResamplingOptions = Literal[
 
 
 def cogify_inplace(
-    tiff_file: str,
-    blocksize: int = 2048,
-    nodata: Optional[float] = None,
-    dtype: Literal[None, "int8", "int16", "uint8", "uint16", "float32"] = None,
-    resampling: CogifyResamplingOptions = None,
-    quiet: bool = True,
+        tiff_file: str,
+        blocksize: int = 2048,
+        nodata: Optional[float] = None,
+        dtype: Literal[None, "int8", "int16", "uint8", "uint16", "float32"] = None,
+        resampling: CogifyResamplingOptions = None,
+        quiet: bool = True,
 ) -> None:
     """Make the (geotiff) file a cog
     :param tiff_file: .tiff file to cogify
@@ -72,14 +73,14 @@ def cogify_inplace(
 
 
 def cogify(
-    input_file: str,
-    output_file: str,
-    blocksize: int = 1024,
-    nodata: Optional[float] = None,
-    dtype: Literal[None, "int8", "int16", "uint8", "uint16", "float32"] = None,
-    overwrite: bool = True,
-    resampling: CogifyResamplingOptions = None,
-    quiet: bool = True,
+        input_file: str,
+        output_file: str,
+        blocksize: int = 1024,
+        nodata: Optional[float] = None,
+        dtype: Literal[None, "int8", "int16", "uint8", "uint16", "float32"] = None,
+        overwrite: bool = True,
+        resampling: CogifyResamplingOptions = None,
+        quiet: bool = True,
 ) -> None:
     """Create a cloud optimized version of input file
 
@@ -139,14 +140,14 @@ def cogify(
 
 
 def merge_tiffs(
-    input_filenames: Iterable[str],
-    merged_filename: str,
-    *,
-    overwrite: bool = True,
-    nodata: Optional[float] = None,
-    dtype: Literal[None, "int8", "int16", "uint8", "uint16", "float32"] = None,
-    warp_resampling: WarpResamplingOptions = None,
-    quiet: bool = True,
+        input_filenames: Iterable[str],
+        merged_filename: str,
+        *,
+        overwrite: bool = True,
+        nodata: Optional[float] = None,
+        dtype: Literal[None, "int8", "int16", "uint8", "uint16", "float32"] = None,
+        warp_resampling: WarpResamplingOptions = None,
+        quiet: bool = True,
 ) -> None:
     """Performs gdal_merge on a set of given geotiff images
 
@@ -173,18 +174,50 @@ def merge_tiffs(
 
     if dtype is not None:
         gdalwarp_options += f" -ot {GDAL_DTYPE_SETTINGS[dtype]}"
+    input_filelist = list(input_filenames)
+    command = f"gdalwarp {gdalwarp_options} {' '.join(input_filelist)} {merged_filename}"
+    # LOGGER.info(f"The command that we are executing is {command}")
+    if len(command) > 130000 or len(input_filelist) > 1000:
+        LOGGER.info(f"Number of characters in command is {len(command)}")
+        LOGGER.info(f"Length of input file list is => {len(input_filelist)}")
+        # generate a text file with
+        merged_path = Path(merged_filename)
+        tile_list_path = str(merged_path.with_name(f"{merged_path.stem}_files.txt"))
+        vrt_file_path = str(merged_path.with_name(f"{merged_path.stem}_temp.vrt"))
+        with open(tile_list_path, "w") as file:
+            for string in input_filelist:
+                file.write(string + "\n")
+        generate_vrt_command = f"gdalbuildvrt {vrt_file_path} -input_file_list {tile_list_path}"
+        LOGGER.info(f'File list looks like => {Path(tile_list_path).read_text()}')
 
-    command = f"gdalwarp {gdalwarp_options} {' '.join(input_filenames)} {merged_filename}"
+        # halfway_point = len(input_filelist) // 2
+        # LOGGER.info(f"Halfway point is  => {halfway_point}")
+        # input_files_A = input_filelist[:halfway_point]
+        # input_files_B = input_filelist[halfway_point:]
+        # LOGGER.info(f"Length of input file list  A & B are => {len(input_files_A)} , {len(input_files_B)}")
+        # merged_path = Path(merged_filename)
+        # merged_file_A = str(merged_path.with_name(f"{merged_path.stem}_A{merged_path.suffix}"))
+        # merged_file_B = str(merged_path.with_name(f"{merged_path.stem}_B{merged_path.suffix}"))
+        # LOGGER.info(f"Command Args too long, breaking it down to two intermediary files {merged_file_A} & {merged_file_B}")
+        # merge_tiffs(input_files_A, merged_file_A, overwrite=overwrite, nodata=nodata, dtype=dtype, warp_resampling=warp_resampling,
+        #             quiet=quiet)
+        # merge_tiffs(input_files_B, merged_file_B, overwrite=overwrite, nodata=nodata, dtype=dtype, warp_resampling=warp_resampling,
+        #             quiet=quiet)
+        # command = f"gdalwarp {gdalwarp_options} {' '.join([merged_file_A, merged_file_B])} {merged_filename}"
+        LOGGER.info(f"Building vrt using command => {generate_vrt_command}")
+        subprocess.check_call(generate_vrt_command, shell=True)
+        command = f"gdalwarp {gdalwarp_options} {vrt_file_path} {merged_filename}"
+        LOGGER.info(f"VRT Built, now running gdalwarp => {command}")
     subprocess.check_call(command, shell=True)
 
 
 def extract_bands(
-    input_file: str,
-    output_file: str,
-    bands: Iterable[int],
-    overwrite: bool = True,
-    compress: bool = False,
-    quiet: bool = True,
+        input_file: str,
+        output_file: str,
+        bands: Iterable[int],
+        overwrite: bool = True,
+        compress: bool = False,
+        quiet: bool = True,
 ) -> None:
     """Extract bands from given input file
 
